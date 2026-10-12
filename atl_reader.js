@@ -11,30 +11,34 @@ var body = ($response && $response.body) ? $response.body : "";
 // 1) 移除全部 <script>（内联与外链都删）——付费墙脚本无法运行，正文得以保留
 body = body.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
 
-// 2) 懒加载图片：Lazysizes 那套 data-* 属性全部还原成浏览器原生 src/srcset
-//    否则无 JS 时浏览器只看到占位小图，正文配图全空。
-//    覆盖范围：<img> 与 <picture> 内的 <source>；data-src / data-srcset /
-//    data-lazy-src / data-lazy-srcset / data-original / data-original-srcset。
-var LAZY_MAP = [
-  ['data-src',          'src'],
-  ['data-lazy-src',     'src'],
-  ['data-original',     'src'],
-  ['data-original-src', 'src'],
-  ['data-srcset',          'srcset'],
-  ['data-lazy-srcset',     'srcset'],
-  ['data-original-srcset', 'srcset']
-];
-LAZY_MAP.forEach(function (pair) {
-  var from = pair[0], to = pair[1];
-  // 匹配 <img ...> 或 <source ...> 中出现的 from="..."（双/单引号）
-  var re = new RegExp('(<(?:img|source)\\b[^>]*?)\\b' + from + '\\s*=\\s*("([^"]*)"|\'([^\']*)\')', 'gi');
-  body = body.replace(re, function (m, pre, _q, a, b) {
-    var val = (a !== undefined) ? a : b;
-    return pre + ' ' + to + '="' + val + '"';
-  });
+// 2) 懒加载图片：Lazysizes 那套 data-* 属性还原成浏览器原生 src/srcset。
+//    关键坑：<img> 自带一个占位 src="data:image/svg+xml,..."，若只在后面“追加”
+//    一个 src，标签里会出现两个 src，浏览器只认第一个（占位小图）→ 显示灰色块。
+//    所以必须【整标签处理】：把占位的 src/srcset 清掉，再用真实地址重建，绝不留重复属性。
+body = body.replace(/<(img|source)\b([^>]*)>/gi, function (m, tag, attrs) {
+  function get(name) {
+    var r = new RegExp('\\b' + name + '\\s*=\\s*("([^"]*)"|\'([^\']*)\')', 'i');
+    var mm = attrs.match(r);
+    return mm ? (mm[2] !== undefined ? mm[2] : mm[3]) : null;
+  }
+  // 真实地址优先用 data-*，否则沿用标签里已有的真实 src/srcset
+  var realSrc    = get('data-src') || get('data-lazy-src') || get('data-original') || get('data-original-src') || get('src');
+  var realSrcset = get('data-srcset') || get('data-lazy-srcset') || get('data-original-srcset') || get('srcset');
+  // 清除所有相关属性（占位 src/srcset 与各类 data-*），避免重复
+  var out = attrs
+    .replace(/\bsrc\s*=\s*("[^"]*"|'[^']*')/gi, '')
+    .replace(/\bsrcset\s*=\s*("[^"]*"|'[^']*')/gi, '')
+    .replace(/\bdata-src\s*=\s*("[^"]*"|'[^']*')/gi, '')
+    .replace(/\bdata-lazy-src\s*=\s*("[^"]*"|'[^']*')/gi, '')
+    .replace(/\bdata-original(?:-src)?\s*=\s*("[^"]*"|'[^']*')/gi, '')
+    .replace(/\bdata-srcset\s*=\s*("[^"]*"|'[^']*')/gi, '')
+    .replace(/\bdata-lazy-srcset\s*=\s*("[^"]*"|'[^']*')/gi, '')
+    .replace(/\bdata-original-srcset\s*=\s*("[^"]*"|'[^']*')/gi, '')
+    .replace(/\bdata-sizes\s*=\s*("[^"]*"|'[^']*')/gi, '');
+  if (realSrc)    out += ' src="' + realSrc + '"';
+  if (realSrcset) out += ' srcset="' + realSrcset + '"';
+  return '<' + tag + out + '>';
 });
-// 顺手把 Lazysizes 的 data-sizes="auto"（非合法值）清掉，避免干扰 srcset 选择
-body = body.replace(/(<(?:img|source)\b[^>]*?)\bdata-sizes\s*=\s*("auto"|'auto')/gi, '$1');
 
 // 3) 注入强制显示样式（隐藏一切付费墙浮层/遮罩，解除高度/渐变限制）
 var css =
