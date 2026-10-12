@@ -3,11 +3,11 @@
 两站都是「软墙」（正文其实就在下发的 HTML 里，付费墙脚本/遮罩在加载后才遮挡或截断），打法一致：MitM 解密后用一条【同步】`script-response-body` 注入样式/移除脚本，**全程不发任何网络请求**，QX 必能稳定执行。
 
 - **《纽约客》The New Yorker**：`reader.js` 注入样式隐藏遮罩、解除截断（一直稳定）。
-- **The Atlantic**：`atl_reader.js` 注入「强制显示全文」CSS 并移除付费墙脚本/遮罩。早期曾试过 `r.jina.ai` 代理，但实测该公共服务不稳定（时而只回 200+ 词），已弃用；且你手机上「刷新先长后截断」的现象本身就证明大西洋是软墙（全文在 HTML 里），直接用脚本解锁最稳。
+- **The Atlantic**：`atl_reader.js` 移除页面**全部 `<script>`**——大西洋文章页是 hydration SPA，截断正文的是它自己的主 JS bundle（不是 Piano），删掉脚本后服务端下发的完整正文原样显示。再注入 CSS 隐藏付费墙浮层、把 SSR 里写死的懒加载图还原成真实 `src`。**已知限制**：正文插图由客户端 JS 动态注入，删脚本后这部分图只剩灰色占位块（首图/封面等 SSR 写死的图正常）。早期试过 `r.jina.ai` 代理、「只删 Piano 保留其它脚本」均失败。
 
 ## 文件
 - `reader.js`：纽约客响应改写脚本（已稳定）
-- `atl_reader.js`：The Atlantic 软墙解锁（注入 CSS + 移除付费墙脚本，无网络请求）
+- `atl_reader.js`：The Atlantic 软墙解锁（移除全部脚本以保证文字完整 + 注入 CSS 隐藏付费墙 + 还原 SSR 图片；正文插图因客户端 JS 注入而呈灰块为已知限制）
 - `theatlantic.conf`：大西洋独立配置，自带 `[MITM]` 段，可作「配置文件」订阅一条搞定
 - `newyorker.conf`：纽约客独立重写资源
 - `profile.conf`：合并版（含两站 MITM + 重写），不方便拆开时用
@@ -21,9 +21,20 @@
    ```
 
 2. 弹出的「添加资源」里，**资源类型务必选「配置文件」**（不要选「重写规则」！选错就又回到 MITM 没加的老问题）。
-3. 保存后，进 QX「MitM」确认 `hostname` 里出现了 `theatlantic.com, www.theatlantic.com`。
+3. 保存后，进 QX「MitM」确认 `hostname` 里出现了 `*.theatlantic.com`（已包含 `theatlantic.com` 与 `www.theatlantic.com` 及其图片 CDN 子域）。
 4. 若你之前加过旧的 `theatlantic.conf`（带 r.jina.ai 302 的那版），请在 QX 里把那个旧资源删掉/更新，避免两条规则打架。
 5. Safari 打开任意大西洋文章 → 不再有「先长后截断」，直接显示全文。
+
+### 关于「插图灰色块」（已知限制）
+大西洋的正文配图分为两类：
+- **首图 / 封面图**：服务端直出、写死真实 `src`，本脚本能正常还原显示。
+- **正文内插图**：由客户端 JS 在加载后动态注入 DOM，本脚本删掉全部 JS 后这些图无法注入，会显示为灰色占位块。
+
+这是「删全部脚本保文字」方案的天然代价。若要插图也显示，两条路：
+1. **临时**：Safari 地址栏左侧「AA → 显示阅读器视图」可看全文（含插图），只是没有翻译按钮。
+2. **彻底**：若你能在 Mac 的 Safari「开发」菜单（或 iPhone 任意「查看网页源代码」方式）导出该文章的完整 HTML 源码发我，我可解析其中的内联文章 JSON，自己重建插图 `<img>`，做到文字+插图+翻译三全。
+
+> 注：因大西洋被 Cloudflare 防护，我这边（沙箱）无法抓取真实 HTML，故插图自动重建需依赖你提供的源码样本。
 
 ### 不想用链接 / 链接方式不灵时的手动法
 - 「重写 → 资源 → ＋ → 资源路径」粘贴 `theatlantic.conf` 的 raw 链接；**同时**在你主配置 `[MITM]` 的 `hostname` 手动补：`theatlantic.com, www.theatlantic.com`。
