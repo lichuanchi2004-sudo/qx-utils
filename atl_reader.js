@@ -8,8 +8,15 @@
 
 var body = ($response && $response.body) ? $response.body : "";
 
-// 1) 移除全部 <script>（内联与外链都删）——付费墙脚本无法运行，正文得以保留
-body = body.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
+// 1) 只移除【付费墙脚本】(Piano/Tinypass)，保留其它脚本（尤其是图片懒加载器 Lazysizes）。
+//    早期“移除全部脚本”会让大西洋自带的图片加载器也失效 → 正文配图全变灰块。
+//    而“先长后截断”是 Piano 在加载后删正文，只要干掉 Piano，文字保住、图片照常懒加载。
+//    - 外链：src 含 tinypass / piano / experienc(experience.tinypass.com) 的脚本整段删；
+//    - 内联：含 tinypass / piano / window.tp / tp.init / __tprofiles 的整段删；其余保留。
+body = body.replace(/<script\b[^>]*\bsrc\s*=\s*("([^"]*(?:tinypass|piano|experienc)[^"]*)"|'([^']*(?:tinypass|piano|experienc)[^']*)')[^>]*>\s*<\/script>/gi, '');
+body = body.replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gi, function (m, inner) {
+  return /tinypass|piano|window\.tp|tp\.init|__tprofiles/i.test(inner) ? '' : m;
+});
 
 // 2) 懒加载图片：Lazysizes 那套 data-* 属性还原成浏览器原生 src/srcset。
 //    关键坑：<img> 自带一个占位 src="data:image/svg+xml,..."，若只在后面“追加”
