@@ -2,7 +2,8 @@
 // 原理：QX 拦截大西洋文章页时，本脚本用 $httpClient 请求 r.jina.ai 全文代理，
 // 取回 markdown 全文后转成阅读用 HTML，通过 $done 替换原（被截断的）响应。
 // 仅对文章页生效；任何一步失败则原样返回（$done({})），绝不白屏。
-// MITM 仅需解密 theatlantic.com 即可（jina 由 QX 内部请求，无需加入 MITM）。
+// MITM 仅需解密 theatlantic.com（jina 由 QX 内部请求，无需加入 MITM）。
+// 失败时推送一条通知「ATL代理失败」方便定位；成功则不打扰。
 
 var articleUrl = $request.url;
 var jinaUrl = "https://r.jina.ai/" + articleUrl;
@@ -44,15 +45,19 @@ function buildPage(title, md) {
     + '<body><h1>' + title + '</h1>' + mdToHtml(md) + '</body></html>';
 }
 
+function fail(reason) {
+  try { $notify("ATL代理失败", String(reason)); } catch (e) {}
+  $done({});
+}
+
 $httpClient.get({ url: jinaUrl, headers: { "User-Agent": "Mozilla/5.0" } }, function (error, response, data) {
-  if (error || !data) {
-    $done({});
-    return;
-  }
+  if (error) { fail(error); return; }
+  if (!data || data.length < 200) { fail("响应过短(可能未拿到全文)"); return; }
   var tm = data.match(/^Title:\s*(.+)$/m);
   var title = tm ? tm[1].trim() : 'Article';
   var idx = data.indexOf('Markdown Content:');
   var md = idx >= 0 ? data.slice(idx + 'Markdown Content:'.length).trim() : data;
+  if (!md || md.length < 200) { fail("正文为空"); return; }
   $done({
     body: buildPage(title, md),
     headers: { 'Content-Type': 'text/html; charset=utf-8' }
