@@ -1,61 +1,41 @@
 # Quantumult X 网页全文阅读辅助配置
 
 ## 原理
-两站采用的限制方式不同，脚本打法也不同：
+两站限制方式不同，打法也不同：
 
-- **《纽约客》The New Yorker**：「计量 + 遮罩」式。免费额度用尽后只盖一层提示，但**正文仍保留在网页 HTML 里**。脚本在 MitM 阶段拦截 HTML，注入样式隐藏遮罩、解除高度截断，并清除本地计量计数。
-- **The Atlantic**：「服务端截断」硬墙。免费读者只能拿到前几段，正文后半部分**根本不在网页 HTML 里**，客户端改写无法恢复。因此脚本在 QX 侧用 `$httpClient` 调用 r.jina.ai 全文代理抓取完整正文，再替换进页面返回——属于「全文代理」打法，依赖第三方公共服务。
+- **《纽约客》The New Yorker**：「计量 + 遮罩」式软墙，正文仍在 HTML 里。脚本在 MitM 阶段注入样式隐藏遮罩、解除截断。
+- **The Atlantic**：「服务端截断」硬墙，正文后半段不在 HTML 里，客户端改写无解。故采用「全文代理」打法：在 QX 把文章请求**重定向到 r.jina.ai**（它会抓取并返回全文），再由一段同步脚本把返回的 markdown 全文转成可阅读 HTML。
+
+> ⚠️ 早期曾用「重写脚本内 `$httpClient` 调 jina」方案，但因 QX 响应改写脚本是同步返回模型、不保证等待异步网络回调，在多数情况下失效，已弃用。现方案改用原生 URL 重定向，稳定。
 
 ## 文件
-- `reader.js`：纽约客（The New Yorker）响应改写脚本（核心）
-- `reader-atl.js`：The Atlantic 响应改写脚本（核心）
-- `newyorker.conf`：纽约客纯重写规则资源（用于「重写规则资源」入口，独立）
-- `theatlantic.conf`：The Atlantic 纯重写规则资源（用于「重写规则资源」入口，独立）
-- `profile.conf`：合并版远程配置（含两站 `[MITM]` 与 `[rewrite_local]`，一次性订阅）
-- `rewrite.conf`：旧版合并重写资源（两站合一，保留兼容；新用户建议改用上面两个分站文件）
+- `reader.js`：纽约客响应改写脚本
+- `atl_md2html.js`：The Atlantic 专用——把 r.jina.ai 返回的全文转成阅读用 HTML（同步、无网络）
+- `newyorker.conf` / `theatlantic.conf`：两站独立的「重写规则资源」文件
+- `profile.conf`：合并版远程配置（含两站 MITM 与重写，一次性订阅）
+- （`reader-atl.js` 已弃用）
 
-## 安装方式
+## 安装
 
 ### 方式一：分站订阅「重写规则资源」（推荐，可独立开关）
-每个站点一个独立资源，互不干扰，可单独关闭某一站。
-- 纽约客：QX → **重写** → **资源** → 右上角 **＋** → 资源路径粘贴：
-  ```
-  https://raw.githubusercontent.com/lichuanchi2004-sudo/qx-utils/main/newyorker.conf
-  ```
-- The Atlantic：同理粘贴：
-  ```
-  https://raw.githubusercontent.com/lichuanchi2004-sudo/qx-utils/main/theatlantic.conf
-  ```
-> 注意：「重写规则资源」只加规则、不带 `[MITM]` 主机名。需确保目标域名已加入你主配置 `[MITM]` 的 `hostname`：
-> 纽约客 `newyorker.com, www.newyorker.com`；大西洋 `theatlantic.com, www.theatlantic.com`。否则规则不会生效。
+- 纽约客：`重写 → 资源 → ＋ → 资源路径` 粘贴 `.../newyorker.conf`
+- The Atlantic：`重写 → 资源 → ＋ → 资源路径` 粘贴 `.../theatlantic.conf`
+> 「重写规则资源」只加规则、不带 `[MITM]` 主机名。**必须**在你主配置 `[MITM]` 段 `hostname` 加入：
+> - 纽约客：`newyorker.com, www.newyorker.com`
+> - **The Atlantic 关键：加 `r.jina.ai`**（大西洋请求被重定向到它，QX 需解密其 HTTPS）。`theatlantic.com` 加不加都行。
 
-### 方式二：一次性订阅远程配置（图省事）
-QX → **配置文件** → 右上角 **＋** → **添加远程配置** → 粘贴地址 → 下载 → 启用：
-```
-https://raw.githubusercontent.com/lichuanchi2004-sudo/qx-utils/main/profile.conf
-```
-该链接已同时包含两站 `[MITM]` 主机名与重写规则，一次性写入，不覆盖现有配置。
+### 方式二：一次性订阅远程配置
+`配置文件 → ＋ → 添加远程配置` 粘贴 `.../profile.conf` 并下载启用。该配置已内置 `r.jina.ai` 的 MITM 与两站规则，不覆盖现有配置。
 
-### 方式三：手动合并（适合已有配置、想完全可控）
-把对应站的规则行加入主配置 `[rewrite_local]`，并在 `[MITM]` 段的 `hostname` 补上域名：
-- 纽约客：
-  ```
-  ^https?:\/\/(www\.)?newyorker\.com\/.* url script-response-body https://raw.githubusercontent.com/lichuanchi2004-sudo/qx-utils/main/reader.js
-  ```
-- The Atlantic：
-  ```
-  ^https?:\/\/(www\.)?theatlantic\.com\/.* url script-response-body https://raw.githubusercontent.com/lichuanchi2004-sudo/qx-utils/main/reader-atl.js
-  ```
-脚本由 QX 自动拉取缓存，无需单独添加脚本文件。
+### 方式三：手动合并
+主配置 `[rewrite_local]` 加入对应规则，`[MITM]` 的 `hostname` 按上面补充。脚本由 QX 自动拉取缓存。
 
 ## 通用要求
-- **开启 MitM**（HTTPS 解密）总开关，并**信任 QX 的 CA 证书**：
-  iOS 设置 → 通用 → 关于本机 → 证书信任设置 → 开启 Quantumult X 证书。
-- 启用 QX（连接 VPN），用 Safari 打开目标文章即可显示全文。
+- 开启 MitM 总开关，并在 iOS「设置 → 通用 → 关于本机 → 证书信任设置」信任 QX 的 CA 证书。
+- 启用 QX，用 Safari 打开文章即可。
 
 ## 说明与局限
-- 《纽约客》仅对「遮罩式 / 计量式」限制有效（站点改版时按 `reader.js` 注释调整 CSS 选择器）。
-- The Atlantic 因是服务端截断硬墙，本方案通过 r.jina.ai 全文代理恢复正文，**依赖第三方公共服务**：偶发抽风或不支持某篇文章时，脚本会原样返回前几段（不会白屏）。如 jina 长期不可用，可替换脚本里的代理地址。
-- 脚本只改你本机流量、只作用于目标域名文章页的 HTML 文档，不影响其他站点。
-- 脚本只改你本机流量、只作用于目标域名的 HTML 文档，不影响其他站点。
+- 纽约客仅对软墙有效；站点改版时按 `reader.js` 注释调整选择器。
+- The Atlantic 依赖第三方 r.jina.ai 公共服务：偶发抽风时，重定向仍会返回 jina 内容（可能以纯文本 markdown 显示，未转 HTML），刷新或稍后再试即可；jina 长期不可用时方案失效。
+- 脚本/资源只作用于目标域名文章页，不影响其他站点。
 - 这是个人阅读便利的技术辅助；如常读且认可其内容，建议订阅以支持创作者。
