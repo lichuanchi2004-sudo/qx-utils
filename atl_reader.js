@@ -36,12 +36,6 @@ LAZY_MAP.forEach(function (pair) {
 // 顺手把 Lazysizes 的 data-sizes="auto"（非合法值）清掉，避免干扰 srcset 选择
 body = body.replace(/(<(?:img|source)\b[^>]*?)\bdata-sizes\s*=\s*("auto"|'auto')/gi, '$1');
 
-// 3) 兜底：把 <noscript> 里的图片解包出来（部分图只放在 noscript 回退里）
-body = body.replace(/<noscript\b[^>]*>([\s\S]*?)<\/noscript>/gi, function (m, inner) {
-  // 仅当内部有 <img>/<source> 时才保留，否则原样丢弃，避免无谓的脚本残留
-  return /<(?:img|source)\b/i.test(inner) ? inner : '';
-});
-
 // 3) 注入强制显示样式（隐藏一切付费墙浮层/遮罩，解除高度/渐变限制）
 var css =
   '<style id="qx-atl-unlock">' +
