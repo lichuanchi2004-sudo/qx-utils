@@ -40,6 +40,36 @@ body = body.replace(/<(img|source)\b([^>]*)>/gi, function (m, tag, attrs) {
   return '<' + tag + out + '>';
 });
 
+// 2b) 背景图懒加载：部分图用 <div data-src="..."> / data-bg 当背景图（不是 <img>），
+//     同样还原成 style="background-image:url(真实地址)"，否则只剩灰色占位块。
+body = body.replace(/<([a-z][a-z0-9]*)\b([^>]*)>/gi, function (m, tag, attrs) {
+  if (/^(img|source|script|style)$/i.test(tag)) return m;
+  function get(n) {
+    var r = new RegExp('\\b' + n + '\\s*=\\s*("([^"]*)"|\'([^\']*)\')', 'i');
+    var mm = attrs.match(r);
+    return mm ? (mm[2] !== undefined ? mm[2] : mm[3]) : null;
+  }
+  var bg = get('data-src') || get('data-bg') || get('data-original') || get('data-lazy-src');
+  if (!bg) return m;
+  var out = attrs
+    .replace(/\bdata-src\s*=\s*("[^"]*"|'[^']*')/gi, '')
+    .replace(/\bdata-bg\s*=\s*("[^"]*"|'[^']*')/gi, '')
+    .replace(/\bdata-original\s*=\s*("[^"]*"|'[^']*')/gi, '')
+    .replace(/\bdata-lazy-src\s*=\s*("[^"]*"|'[^']*')/gi, '');
+  // 去掉已有 background-image（占位），再写入真实地址
+  out = out.replace(/\bstyle\s*=\s*("|')([^"']*)\1/gi, function (s, q, val) {
+    return 'style=' + q + val.replace(/background-image\s*:\s*[^;]*/gi, '') + q;
+  });
+  if (/\bstyle\s*=/i.test(out)) {
+    out = out.replace(/\bstyle\s*=\s*("|')([^"']*)\1/i, function (s, q, val) {
+      return 'style=' + q + val + 'background-image:url(' + bg + ');' + q;
+    });
+  } else {
+    out += ' style="background-image:url(' + bg + ');"';
+  }
+  return '<' + tag + out + '>';
+});
+
 // 3) 注入强制显示样式（隐藏一切付费墙浮层/遮罩，解除高度/渐变限制）
 var css =
   '<style id="qx-atl-unlock">' +
