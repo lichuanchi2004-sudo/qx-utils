@@ -8,15 +8,13 @@
 
 var body = ($response && $response.body) ? $response.body : "";
 
-// 1) 只移除【付费墙脚本】(Piano/Tinypass)，保留其它脚本（尤其是图片懒加载器 Lazysizes）。
-//    早期“移除全部脚本”会让大西洋自带的图片加载器也失效 → 正文配图全变灰块。
-//    而“先长后截断”是 Piano 在加载后删正文，只要干掉 Piano，文字保住、图片照常懒加载。
-//    - 外链：src 含 tinypass / piano / experienc(experience.tinypass.com) 的脚本整段删；
-//    - 内联：含 tinypass / piano / window.tp / tp.init / __tprofiles 的整段删；其余保留。
-body = body.replace(/<script\b[^>]*\bsrc\s*=\s*("([^"]*(?:tinypass|piano|experienc)[^"]*)"|'([^']*(?:tinypass|piano|experienc)[^']*)')[^>]*>\s*<\/script>/gi, '');
-body = body.replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gi, function (m, inner) {
-  return /tinypass|piano|window\.tp|tp\.init|__tprofiles/i.test(inner) ? '' : m;
-});
+// 1) 移除全部 <script>：
+//    大西洋文章页是 hydration SPA —— 正文文本在 SSR 里就已完整下发，靠客户端 JS（大西洋
+//    主 bundle）在加载后把正文 DOM 截断/替换成付费墙。把脚本全删，SSR 正文原样显示，文字即完整。
+//    代价：正文插图是客户端 JS 注入的，删脚本后插图只剩灰色占位块（已知限制，见 README；
+//    后续版本若能从页面内联 JSON 重建插图，可取消该限制）。
+//    ※ 早期曾试“只删 Piano 保留其它脚本”，结果主 bundle 仍会把正文替换掉 → 整页看不到文章，故回退到删全部。
+body = body.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
 
 // 2) 懒加载图片：Lazysizes 那套 data-* 属性还原成浏览器原生 src/srcset。
 //    关键坑：<img> 自带一个占位 src="data:image/svg+xml,..."，若只在后面“追加”
