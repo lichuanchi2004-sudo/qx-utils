@@ -21,9 +21,18 @@ if (/please hold a moment|just a moment|ray id\s*:|challenges?\.cloudflare|cf-mi
 // 1) 移除全部 <script>：
 //    大西洋文章页是 hydration SPA —— 正文文本在 SSR 里就已完整下发，靠客户端 JS（大西洋
 //    主 bundle）在加载后把正文 DOM 截断/替换成付费墙。把脚本全删，SSR 正文原样显示，文字即完整。
-//    代价：正文插图是客户端 JS 注入的，删脚本后插图只剩灰色占位块（已知限制，见 README；
-//    后续版本若能从页面内联 JSON 重建插图，可取消该限制）。
 //    ※ 早期曾试“只删 Piano 保留其它脚本”，结果主 bundle 仍会把正文替换掉 → 整页看不到文章，故回退到删全部。
+//
+//    ★ 关于正文插图（v4 已修复，不再是"已知限制"）：
+//      服务端下发的 <img> 的 src/srcset/width/height 本来就是**正确的真实地址**（全页 0 个 data-src）。
+//      删脚本后图仍看不见，纯属 CSS 的锅 —— 站点把"淡入"交给客户端 JS 做：
+//        .Image_lazy__hYWHV { opacity:0 }                                  ← 初始透明
+//        .Image_loaded__zmzJ7 { opacity:1 }                                ← 只有站点 JS 会挂这个类
+//        .ArticleInlineImagePicture_picture__SVXJ7{ height:0; padding-bottom:79.96%;
+//                                                   background-color:var(--article-image-loading-placeholder-color) }  ← 灰块本体
+//        .ArticleInlineImagePicture_image__I79fR { height:100% }            ← 父高 0 ⇒ 图高也算成 0
+//      删了 JS 就永远挂不上 loaded 类 ⇒ 图片永久 opacity:0，只剩外面那层 #c0ccda 灰框。
+//      所以除了删脚本，**必须同时注入 CSS 把这些"等 JS 来改"的样式直接改成终态**（见下面第 3 段）。
 body = body.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
 
 // 2) 懒加载图片：Lazysizes 那套 data-* 属性还原成浏览器原生 src/srcset。
@@ -96,6 +105,24 @@ var css =
   '-webkit-mask-image:none!important;mask-image:none!important;opacity:1!important;filter:none!important' +
   '}' +
   '[class*="fade"],[class*="Fade"],[class*="blur"],[class*="Blur"]{opacity:1!important;filter:none!important;-webkit-mask-image:none!important;mask-image:none!important}' +
+  // 3b) ★★ 正文插图出图（本版核心修复）★★
+  //     站点靠客户端 JS 在图片 onload 后才挂 Image_loaded__zmzJ7 把 opacity 从 0 改 1；
+  //     本脚本删了 JS，没人挂 ⇒ 必须在此直接把终态写死（用 !important 压过站点 CSS 与行内 padding-bottom）。
+  //     选择器一律用"类名前缀"匹配（[class*="Image_lazy__"]），哈希号变了也不影响，抗站点改版。
+  //     (a) 所有懒加载图：直接可见（正文插图 / 作者头像 / 杂志封面 / QuickLinks 共 12 张）
+  '[class*="Image_lazy__"]{opacity:1!important;transition:none!important}' +
+  //     (b) 正文插图外层 <picture>：height:0 + padding-bottom 的"占位灰框"是灰块本体，取消之
+  '[class*="ArticleInlineImagePicture_picture__"]{' +
+  'height:auto!important;padding-bottom:0!important;padding-top:0!important;' +
+  'background-color:transparent!important;background-image:none!important;overflow:visible!important' +
+  '}' +
+  //     (c) 正文插图本体 <img>：height:100%（相对父的 0 高）要把图压成 0，改回按 width/height 属性自然撑开
+  '[class*="ArticleInlineImagePicture_image__"]{' +
+  'position:static!important;height:auto!important;width:auto!important;max-width:100%!important;' +
+  'opacity:1!important;display:block!important' +
+  '}' +
+  // 3c) 兜底：任何原生懒加载图，绝不因为 opacity 看不见
+  'img[loading="lazy"]{opacity:1!important}' +
   '</style>';
 
 if (/<head[^>]*>/i.test(body)) {
