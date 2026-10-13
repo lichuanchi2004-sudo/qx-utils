@@ -1,16 +1,42 @@
 # Quantumult X 网页全文阅读辅助配置
 
-两站都是「软墙」（正文其实就在下发的 HTML 里，付费墙脚本/遮罩在加载后才遮挡或截断），打法一致：MitM 解密后用一条【同步】`script-response-body` 注入样式/移除脚本，**全程不发任何网络请求**，QX 必能稳定执行。
+两站打法一致：MitM 解密后用一条【同步】`script-response-body` 移除页面脚本 + 注入 CSS，**全程不发任何网络请求**，QX 必能稳定执行。
 
-- **《纽约客》The New Yorker**：`reader.js` 注入样式隐藏遮罩、解除截断（一直稳定）。
+- **《纽约客》The New Yorker**（2026-10-14 重新定案）：`reader.js` 移除页面全部 `<script>` + 只隐藏付费墙外壳。
+  **真实机制（已实测复现）**：服务端下发的 HTML **本来就是全文**（响应头 `payment: free`，正文段落带 `class="paywall"` 只是标记，页面里根本没有任何 `.paywall` 的 CSS 规则）；真正的隐藏是**客户端 JS 水合后**读取内嵌状态 `"paywall":{"paragraphLimit":1}`，把正文容器 `.body__inner-container` **整个清空**换成硬付费墙（offer 名里写着 `...MOBILE_PAYWALL_IN_CONTENT_BARRIER_FILLED_0_HARD_GATE_INTL_...`，即对海外 IP 的硬墙）。无头 Chrome 渲染线上真实页面可复现：水合后 `<p class="paywall">` 由 8 个变 0 个，容器变空。
+  ⇒ 所以「只注入 CSS 掀遮罩」注定无效——内容是被 JS **删掉**了，不是被挡住。
+  ⚠️ 上一版脚本自己还捅了一刀：CSS 里写了 `[class*="paywall"]{display:none!important}`，而正文段落本身就叫 `class="paywall"` ⇒ 把全文都藏了、只剩第一段。这就是「删脚本反而只剩一段」的真正原因，**现已彻底移除该条**。
 - **The Atlantic**：`atl_reader.js` 移除页面**全部 `<script>`**——大西洋文章页是 hydration SPA，截断正文的是它自己的主 JS bundle（不是 Piano），删掉脚本后服务端下发的完整正文原样显示。再注入 CSS 隐藏付费墙浮层、把 SSR 里写死的懒加载图还原成真实 `src`。**已知限制**：正文插图由客户端 JS 动态注入，删脚本后这部分图只剩灰色占位块（首图/封面等 SSR 写死的图正常）。早期试过 `r.jina.ai` 代理、「只删 Piano 保留其它脚本」均失败。
 
 ## 文件
-- `reader.js`：纽约客响应改写脚本（已稳定）
+- `reader.js`：纽约客响应改写脚本（**当前版本**：删页面脚本 + 精准隐藏付费墙外壳；见文件顶部实测依据）
 - `atl_reader.js`：The Atlantic 软墙解锁（移除全部脚本以保证文字完整 + 注入 CSS 隐藏付费墙 + 还原 SSR 图片；正文插图因客户端 JS 注入而呈灰块为已知限制）
 - `theatlantic.conf`：大西洋独立配置，自带 `[MITM]` 段，可作「配置文件」订阅一条搞定
-- `newyorker.conf`：纽约客独立重写资源
-- `profile.conf`：合并版（含两站 MITM + 重写），不方便拆开时用
+- `rewrite_newyorker.conf`：**纽约客重写规则（只需要这一条）**
+- `ny_headers.js`：已废弃，现为**空操作**（若你 QX 里还挂着旧规则引用它，不会出错，但建议删掉那条规则）
+- `profile.conf` / `newyorker.conf`：旧合并配置，已过时，建议删除避免与 `rewrite_newyorker.conf` 打架
+
+## 纽约客安装（一条重写规则）
+
+在 QX「重写 → 资源 → ＋」，资源类型选**「重写规则」**，粘贴 raw 链接：
+
+```
+https://raw.githubusercontent.com/lichuanchi2004-sudo/qx-utils/main/rewrite_newyorker.conf
+```
+
+然后在你主配置的 `[MITM]` → `hostname` 里填：
+
+```
+newyorker.com, www.newyorker.com
+```
+
+⚠️ 不要写 `*.newyorker.com`——会把 `media.newyorker.com`（图片 CDN）也拉进解密，配图会变慢。
+⚠️ 如果你的 QX 里还有旧的「两条规则」版本（含 `ny_headers.js`），把第 ① 条删掉，只留这一条。
+
+Safari 打开任意纽约客文章 → 全文直接显示，可正常「AA → 翻译成简体中文」。
+
+### 本地验证方法（脚本自带诊断）
+脚本跑起来会弹通知：「纽约客解锁 / 正文段落: N」。N 就是服务端下发的正文段落数（例如 121、51、9）。看到 N ≥ 10 基本就是全文；若只弹 1~2，说明页面当时没下发全文，换个时间再试。
 
 ## The Atlantic 安装（推荐：一条链接）
 
