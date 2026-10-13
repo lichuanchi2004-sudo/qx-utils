@@ -8,6 +8,16 @@
 
 var body = ($response && $response.body) ? $response.body : "";
 
+// 0) ★ Cloudflare 挑战页放行（关键修复）
+//    当返回的是 "Please hold a moment" / "Just a moment" 这类人机验证页时，【绝不能删除它的脚本】。
+//    该页依赖自身 JS 完成验证并种下 cf_clearance cookie；若被本脚本一并删除，验证永远完不成，
+//    页面会永久卡在 "Please hold a moment"（典型诱因：清过 Safari cookies 触发重新挑战）。
+//    原样返回，让 Cloudflare 的 JS 在浏览器里自解，种下 cookie 后下一次请求即拿到真文章，届时再正常解锁。
+if (/please hold a moment|just a moment|ray id\s*:|challenges?\.cloudflare|cf-mitigated|cf-chl|cf-challenge/i.test(body)) {
+  $done({ body: body });
+  return;
+}
+
 // 1) 移除全部 <script>：
 //    大西洋文章页是 hydration SPA —— 正文文本在 SSR 里就已完整下发，靠客户端 JS（大西洋
 //    主 bundle）在加载后把正文 DOM 截断/替换成付费墙。把脚本全删，SSR 正文原样显示，文字即完整。
