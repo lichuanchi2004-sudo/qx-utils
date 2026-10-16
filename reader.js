@@ -95,11 +95,15 @@ if (!/<html|<!doctype/i.test(body)) {
     body = css + body;
   }
 
-  // 诊断：确认规则命中，并报告"服务端下发了多少段正文"
+  // 诊断：确认规则命中，并报告"服务端下发了多少段正文"。
+  // ⚠️ 只写控制台日志，**不弹通知** —— 每次打开文章都弹一条横幅太吵（用户 2026-10-16 要求去掉）。
+  //    需要看诊断时：QX → 更多 → 脚本日志 / 或把下面 console.log 临时换回 $notify 即可。
   try {
     var n = (body.match(/<p class="paywall"/g) || []).length +
             (body.match(/<p class="[^"]*has-dropcap[^"]*"/g) || []).length;
-    $notify("纽约客解锁", "正文段落: " + n, "已删除页面脚本，阻断客户端删正文");
+    if (typeof console !== "undefined" && console.log) {
+      console.log("[纽约客解锁] 正文段落: " + n + "（已删除页面脚本，阻断客户端删正文）");
+    }
   } catch (e) {}
 
   $done({ body: body });
